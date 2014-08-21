@@ -37,12 +37,15 @@ PROCESS_THREAD(test_process, ev, data)
     dint();
 #if CONTIKI_TARGET_SKY
     volatile uint16_t r = (random_rand() & 0xfff) + 0x800; // sky @ 3.9 MHz
+    // uncomment to see that a larger delay value does NOT cause the problem
+    //r = 0x2fff;
 #elif CONTIKI_TARGET_Z1
     volatile uint16_t r = (random_rand() & 0x1fff) + 0x1000; // z1 @ 8 MHz
+#elif CONTIKI_TARGET_WISMOTE
+    volatile uint16_t r = (random_rand() & 0x7fff); // wismote @ 16 MHz
 #else
 #error
 #endif
-    //r = 0x2fff; // a larger delay value does NOT cause a problem (tested @ tmote sky)!
     for(; r > 0; --r) {
       asm("nop");
     }
