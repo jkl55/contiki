@@ -236,8 +236,9 @@ public abstract class AbstractRadioMedium extends RadioMedium {
 				case RECEPTION_STARTED:
 				case RECEPTION_INTERFERED:
 				case RECEPTION_FINISHED:
+					break;
+
 				case UNKNOWN:
-					return;
 				case HW_ON: {
 					/* Update signal strengths */
 					updateSignalStrengths();

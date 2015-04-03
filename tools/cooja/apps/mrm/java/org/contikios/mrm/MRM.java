@@ -169,6 +169,7 @@ public class MRM extends AbstractRadioMedium {
       if (sender.getChannel() >= 0 &&
           recv.getChannel() >= 0 &&
           sender.getChannel() != recv.getChannel()) {
+        newConnection.addInterfered(recv);
         continue;
       }
       final Radio recvFinal = recv;
