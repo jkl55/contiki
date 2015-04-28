@@ -13,5 +13,5 @@ endif
 
 CFLAGS += -DPROJECT_CONF_H=\"project-conf.h\"
 
-CONTIKI = ../..
+CONTIKI = ../../..
 include $(CONTIKI)/Makefile.include
