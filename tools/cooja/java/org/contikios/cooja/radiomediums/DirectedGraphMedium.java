@@ -296,15 +296,7 @@ public class DirectedGraphMedium extends AbstractRadioMedium {
         newConn.addInterfered(dest.radio);
         continue;
       }
-
-      int srcc = source.getChannel();
-      int dstc = dest.radio.getChannel(); 
-      if ( srcc >= 0 && dstc >= 0 && srcc != dstc) {
-    	/* Fail: radios are on different (but configured) channels */
-        newConn.addInterfered(dest.radio);
-        continue;
-      }
-      
+     
       if (dest.radio.isReceiving()) {
          /* Fail: radio is already actively receiving */
          /*logger.info(source + ": Fail, receiving");*/
