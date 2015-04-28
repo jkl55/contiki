@@ -293,7 +293,7 @@ public abstract class AbstractRadioMedium extends RadioMedium {
 				break;
 				case TRANSMISSION_FINISHED: {
 					/* Remove radio connection */
-					
+
 					/* Connection */
 					RadioConnection connection = getActiveConnectionFrom(radio);
 					if (connection == null) {
@@ -323,7 +323,10 @@ public abstract class AbstractRadioMedium extends RadioMedium {
 					COUNTER_RX += connection.getDestinations().length;
 					COUNTER_INTERFERED += connection.getInterfered().length;
 					for (Radio intRadio : connection.getInterferedNonDestinations()) {
-						intRadio.signalReceptionEnd();
+
+					  if (intRadio.isInterfered()) {
+					    intRadio.signalReceptionEnd();
+					  }
 					}
 					
 					/* Update signal strengths */
