@@ -30,6 +30,8 @@ PROCESS_THREAD(example_process, ev, data)
     while (RTIMER_CLOCK_LT(RTIMER_NOW(), 0xffff));
     
     if (node_id == 1) {
+        // sender branch
+
         while (RTIMER_CLOCK_LT(RTIMER_NOW(), 0x10000 + 1000ul));
 
         NETSTACK_RADIO.send(sendBuffer, TEST_PACKET_SIZE);
@@ -39,6 +41,7 @@ PROCESS_THREAD(example_process, ev, data)
         NETSTACK_RADIO.send(sendBuffer, TEST_PACKET_SIZE);
 
     } else {
+        // receiver branch
 
         // output: "packet NOT seen"
         cc2420_set_channel(25);
