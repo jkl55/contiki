@@ -109,7 +109,7 @@ get_global_addr(uip_ipaddr_t *addr)
     state = uip_ds6_if.addr_list[i].state;
     if(uip_ds6_if.addr_list[i].isused &&
        (state == ADDR_TENTATIVE || state == ADDR_PREFERRED)) {
-      if(!uip_is_addr_link_local(&uip_ds6_if.addr_list[i].ipaddr)) {
+      if(!uip_is_addr_linklocal(&uip_ds6_if.addr_list[i].ipaddr)) {
         memcpy(addr, &uip_ds6_if.addr_list[i].ipaddr, sizeof(uip_ipaddr_t));
         return 1;
       }
@@ -243,8 +243,10 @@ dio_input(void)
     if((nbr = uip_ds6_nbr_add(&from, (uip_lladdr_t *)
                               packetbuf_addr(PACKETBUF_ADDR_SENDER),
                               0, NBR_REACHABLE)) != NULL) {
+#if UIP_ND6_SEND_NA
       /* set reachable timer */
       stimer_set(&nbr->reachable, UIP_ND6_REACHABLE_TIME / 1000);
+#endif /* UIP_ND6_SEND_NA */
       PRINTF("RPL: Neighbor added to neighbor cache ");
       PRINT6ADDR(&from);
       PRINTF(", ");
@@ -729,13 +731,13 @@ dao_input(void)
       PRINT6ADDR(&prefix);
       PRINTF("\n");
       rep->state.nopath_received = 1;
-      rep->state.lifetime = DAO_EXPIRATION_TIMEOUT;
+      rep->state.lifetime = RPL_NOPATH_REMOVAL_DELAY;
 
-      /* We forward the incoming no-path DAO to our parent, if we have
+      /* We forward the incoming No-Path DAO to our parent, if we have
          one. */
       if(dag->preferred_parent != NULL &&
          rpl_get_parent_ipaddr(dag->preferred_parent) != NULL) {
-        PRINTF("RPL: Forwarding no-path DAO to parent ");
+        PRINTF("RPL: Forwarding No-Path DAO to parent ");
         PRINT6ADDR(rpl_get_parent_ipaddr(dag->preferred_parent));
         PRINTF("\n");
         uip_icmp6_send(rpl_get_parent_ipaddr(dag->preferred_parent),
@@ -754,8 +756,10 @@ dao_input(void)
     if((nbr = uip_ds6_nbr_add(&dao_sender_addr,
                               (uip_lladdr_t *)packetbuf_addr(PACKETBUF_ADDR_SENDER),
                               0, NBR_REACHABLE)) != NULL) {
+#if UIP_ND6_SEND_NA
       /* set reachable timer */
       stimer_set(&nbr->reachable, UIP_ND6_REACHABLE_TIME / 1000);
+#endif /* UIP_ND6_SEND_NA */
       PRINTF("RPL: Neighbor added to neighbor cache ");
       PRINT6ADDR(&dao_sender_addr);
       PRINTF(", ");
@@ -900,7 +904,7 @@ dao_output_target(rpl_parent_t *parent, uip_ipaddr_t *prefix, uint8_t lifetime)
   buffer[pos++] = 0; /* path seq - ignored */
   buffer[pos++] = lifetime;
 
-  PRINTF("RPL: Sending DAO with prefix ");
+  PRINTF("RPL: Sending %sDAO with prefix ", lifetime == RPL_ZERO_LIFETIME ? "No-Path " : "");
   PRINT6ADDR(prefix);
   PRINTF(" to ");
   PRINT6ADDR(rpl_get_parent_ipaddr(parent));

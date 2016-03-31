@@ -229,10 +229,12 @@ main(int argc, char **argv)
    * Hardware initialization done!
    */
 
-  node_id = NODE_ID;
-
   /* Restore node id if such has been stored in external mem */
-  //node_id_restore();
+  node_id_restore();
+
+  if(!node_id) {
+    node_id = NODE_ID;
+  }
 
   /* for setting "hardcoded" IEEE 802.15.4 MAC addresses */
 #ifdef IEEE_802154_MAC_ADDRESS
@@ -322,7 +324,7 @@ main(int argc, char **argv)
   if(!UIP_CONF_IPV6_RPL) {
     uip_ipaddr_t ipaddr;
     int i;
-    uip_ip6addr(&ipaddr, 0xaaaa, 0, 0, 0, 0, 0, 0, 0);
+    uip_ip6addr(&ipaddr, UIP_DS6_DEFAULT_PREFIX, 0, 0, 0, 0, 0, 0, 0);
     uip_ds6_set_addr_iid(&ipaddr, &uip_lladdr);
     uip_ds6_addr_add(&ipaddr, 0, ADDR_TENTATIVE);
     printf("Tentative global IPv6 address ");
