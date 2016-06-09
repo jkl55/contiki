@@ -101,7 +101,7 @@ tsch_log_process_pending(void)
                 log->tx.dest,
                 log->tx.mac_tx_status, log->tx.num_tx);
         if(log->tx.drift_used) {
-          printf(", dr %d", log->tx.drift);
+          printf(", dr %d (%d)", log->tx.drift, log->tx.precise_drift);
         }
         printf("\n");
         break;
@@ -111,9 +111,9 @@ tsch_log_process_pending(void)
                 log->rx.datalen,
                 log->rx.src);
         if(log->rx.drift_used) {
-          printf(", dr %d", log->rx.drift);
+          printf(", dr %d (%d)", log->rx.drift, log->rx.precise_drift);
         }
-        printf(", edr %d\n", (int)log->rx.estimated_drift);
+        printf(", edr %d (%d)\n", (int)log->rx.estimated_drift, (int)log->rx.precise_estimated_drift);
         break;
       case tsch_log_message:
         printf("%s\n", log->message);

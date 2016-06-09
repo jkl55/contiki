@@ -198,4 +198,12 @@
 #define TSCH_CHANNEL_SCAN_DURATION CLOCK_SECOND
 #endif
 
+/* Precise version of TSCH uses the smallest common multiple of
+ * a rtimer Hz, usec (1 MHz), and radio timer tick Hz as the timing unit. */
+#ifdef TSCH_CONF_PRECISE_TIMING
+#define TSCH_PRECISE_TIMING TSCH_CONF_PRECISE_TIMING
+#else
+#define TSCH_PRECISE_TIMING 1
+#endif
+
 #endif /* __TSCH_CONF_H__ */

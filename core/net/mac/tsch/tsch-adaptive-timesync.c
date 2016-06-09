@@ -45,7 +45,7 @@
 #if TSCH_ADAPTIVE_TIMESYNC
 
 /* Estimated drift of the time-source neighbor. Can be negative.
- * Units used: ppm multiplied by 256. */
+ * Units used: ppm multiplied by 1024. */
 static int32_t drift_ppm;
 /* Ticks compensated locally since the last timesync time */
 static int32_t compensated_ticks;
@@ -54,13 +54,13 @@ static uint8_t timesync_entry_count;
 /* Since last learning of the  drift; may be more than time since last timesync */
 static uint32_t asn_since_last_learning;
 
-/* Units in which drift is stored: ppm * 256 */
-#define TSCH_DRIFT_UNIT (1000L * 1000 * 256)
+/* Units in which drift is stored: ppm * 1024 */
+#define TSCH_DRIFT_UNIT (1000ll * 1000 * 1024)
 
 /*---------------------------------------------------------------------------*/
 /* Add a value to a moving average estimator */
 static int32_t
-timesync_entry_add(int32_t val, uint32_t time_delta)
+timesync_entry_add(int32_t val)
 {
 #define NUM_TIMESYNC_ENTRIES 8
   static int32_t buffer[NUM_TIMESYNC_ENTRIES];
@@ -86,21 +86,26 @@ timesync_entry_add(int32_t val, uint32_t time_delta)
 static void
 timesync_learn_drift_ticks(uint32_t time_delta_asn, int32_t drift_ticks)
 {
-  /* should fit in a 32-bit integer */
-  int32_t time_delta_ticks = time_delta_asn * tsch_timing[tsch_ts_timeslot_length];
+  int64_t time_delta_ticks = time_delta_asn * tsch_timing[tsch_ts_timeslot_length];
   int32_t real_drift_ticks = drift_ticks + compensated_ticks;
-  int32_t last_drift_ppm = (int32_t)((int64_t)real_drift_ticks * TSCH_DRIFT_UNIT / time_delta_ticks);
+  int32_t last_drift_ppm;
 
-  drift_ppm = timesync_entry_add(last_drift_ppm, time_delta_ticks);
+#if TSCH_PRECISE_TIMING
+  time_delta_ticks = TSCH_RTIMER_TO_PRECISE(time_delta_ticks);
+#endif
+
+  last_drift_ppm = (int32_t)((int64_t)real_drift_ticks * TSCH_DRIFT_UNIT / time_delta_ticks);
+
+  drift_ppm = timesync_entry_add(last_drift_ppm);
 
   TSCH_LOG_ADD(tsch_log_message,
       snprintf(log->message, sizeof(log->message),
-          "drift %ld", drift_ppm / 256));
+          "drift %ld", drift_ppm / 1024));
 }
 /*---------------------------------------------------------------------------*/
 /* Either reset or update the neighbor's drift */
 void
-tsch_timesync_update(struct tsch_neighbor *n, uint16_t time_delta_asn, int32_t drift_correction)
+tsch_timesync_update(struct tsch_neighbor *n, uint32_t time_delta_asn, int32_t drift_correction)
 {
   /* Account the drift if either this is a new timesource,
    * or the timedelta is not too small, as smaller timedelta
@@ -118,11 +123,52 @@ tsch_timesync_update(struct tsch_neighbor *n, uint16_t time_delta_asn, int32_t d
       compensated_ticks = 0;
       asn_since_last_learning = 0;
     } else {
-      /* Too small timedelta, do not recalculate the drift to avoid introducing error. instead account for the corrected ticks */
+      /* Too small timedelta, do not recalculate the drift to avoid introducing error.
+       * Instead, just account for the corrected ticks */
       compensated_ticks += drift_correction;
     }
   }
 }
+/*---------------------------------------------------------------------------*/
+#if TSCH_PRECISE_TIMING
+/*---------------------------------------------------------------------------*/
+/* Error-accumulation free compensation algorithm */
+static int32_t
+precise_compensate_internal(uint64_t time_delta_precise, int64_t drift_ppm)
+{
+  int64_t d = time_delta_precise * drift_ppm; // oveflow possible?
+  int32_t amount_precise = d / TSCH_DRIFT_UNIT;
+
+  if(ABS(TSCH_PRECISE_TO_US(amount_precise)) > 100) {
+    TSCH_LOG_ADD(tsch_log_message,
+        snprintf(log->message, sizeof(log->message),
+            "!too big compensation %ld delta %lld", amount_precise, time_delta_precise));
+    amount_precise = amount_precise > 0 ? TSCH_US_TO_PRECISE(100) : TSCH_US_TO_PRECISE(-100);
+  }
+
+  return amount_precise;
+}
+/* Do the compensation step before scheduling a new timeslot */
+int32_t
+tsch_timesync_adaptive_compensate(rtimer_clock_t time_delta_ticks)
+{
+  int32_t result = 0;
+  uint64_t time_delta_precise = TSCH_RTIMER_TO_PRECISE(time_delta_ticks);
+
+  /* compensate, but not if the neighbor is unknown */
+  if(drift_ppm && last_timesource_neighbor != NULL) {
+    result = precise_compensate_internal(time_delta_precise, drift_ppm);
+    compensated_ticks += result;
+  }
+
+  if(TSCH_BASE_DRIFT_PPM) {
+    result += precise_compensate_internal(time_delta_precise, TSCH_BASE_DRIFT_PPM);
+  }
+
+  return result;
+}
+/*---------------------------------------------------------------------------*/
+#else /* TSCH_PRECISE_TIMING */
 /*---------------------------------------------------------------------------*/
 /* Error-accumulation free compensation algorithm */
 static int32_t
@@ -147,7 +193,6 @@ compensate_internal(uint32_t time_delta_usec, int32_t drift_ppm, int32_t *remain
 
   return amount_ticks;
 }
-/*---------------------------------------------------------------------------*/
 /* Do the compensation step before scheduling a new timeslot */
 int32_t
 tsch_timesync_adaptive_compensate(rtimer_clock_t time_delta_ticks)
@@ -155,7 +200,7 @@ tsch_timesync_adaptive_compensate(rtimer_clock_t time_delta_ticks)
   int32_t result = 0;
   uint32_t time_delta_usec = RTIMERTICKS_TO_US_64(time_delta_ticks);
 
-  /* compensate, but not if the neighbor is not known */
+  /* compensate, but not if the neighbor is unknown */
   if(drift_ppm && last_timesource_neighbor != NULL) {
     static int32_t remainder;
     static int16_t tick_conversion_error;
@@ -174,11 +219,14 @@ tsch_timesync_adaptive_compensate(rtimer_clock_t time_delta_ticks)
   return result;
 }
 /*---------------------------------------------------------------------------*/
+#endif /* TSCH_PRECISE_TIMING */
+/*---------------------------------------------------------------------------*/
 #else /* TSCH_ADAPTIVE_TIMESYNC */
 /*---------------------------------------------------------------------------*/
 void
-tsch_timesync_update(struct tsch_neighbor *n, uint16_t time_delta_asn, int32_t drift_correction)
+tsch_timesync_update(struct tsch_neighbor *n, uint32_t time_delta_asn, int32_t drift_correction)
 {
+  last_timesource_neighbor = n;
 }
 /*---------------------------------------------------------------------------*/
 int32_t

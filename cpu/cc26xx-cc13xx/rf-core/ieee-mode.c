@@ -202,6 +202,8 @@ static volatile uint8_t last_corr_lqi = 0;
 
 extern int32_t rat_offset;
 
+static uint32_t rat_send_time = 0;
+static bool rat_send_time_set = false;
 /*---------------------------------------------------------------------------*/
 /* SFD timestamp in RTIMER ticks */
 static volatile uint32_t last_packet_timestamp = 0;
@@ -905,8 +907,16 @@ transmit(unsigned short transmit_len)
   cmd.payloadLen = transmit_len;
   cmd.pPayload = &tx_buf[TX_BUF_HDR_LEN];
 
-  cmd.startTime = 0;
-  cmd.startTrigger.triggerType = TRIG_NOW;
+  if(rat_send_time_set) {
+    /* leave time for the PHY header to be transmitted */
+    cmd.startTime = rat_send_time + rat_offset;
+    cmd.startTrigger.triggerType = TRIG_ABSTIME;
+    cmd.startTrigger.pastTrig = 1; /* as soon as possible, makes sense? */
+    rat_send_time_set = false;
+  } else {
+    cmd.startTime = 0;
+    cmd.startTrigger.triggerType = TRIG_NOW;
+  }
 
   /* XXX: there seems to be no function that gets interrupt state w/o changing it */
   interrupts_enabled = ti_lib_int_master_disable();
@@ -1491,6 +1501,11 @@ set_value(radio_param_t param, radio_value_t value)
     cmd->ccaRssiThr = (int8_t)value;
     break;
 
+  case RADIO_PARAM_TX_TIME:
+    rat_send_time = value;
+    rat_send_time_set = true;
+    return RADIO_RESULT_OK;
+
   default:
     return RADIO_RESULT_NOT_SUPPORTED;
   }
@@ -1548,6 +1563,15 @@ get_object(radio_param_t param, void *dest, size_t size)
       return RADIO_RESULT_INVALID_VALUE;
     }
     *(rtimer_clock_t *)dest = last_packet_timestamp;
+
+    return RADIO_RESULT_OK;
+  }
+
+  if(param == RADIO_PARAM_LAST_PACKET_TIMESTAMP_RADIO_TIMER) {
+    if(size != sizeof(uint64_t) || !dest) {
+      return RADIO_RESULT_INVALID_VALUE;
+    }
+    *(uint64_t *)dest = last_rat_timestamp64;
 
     return RADIO_RESULT_OK;
   }

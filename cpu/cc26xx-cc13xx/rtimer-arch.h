@@ -65,6 +65,19 @@ rtimer_clock_t rtimer_arch_now(void);
 /* A 64-bit version because the 32-bit one cannot handle T >= 4295 ticks.
    Intended only for positive values of T. */
 #define RTIMERTICKS_TO_US_64(T)  ((uint32_t)(((uint64_t)(T) * 1000000 + ((RTIMER_ARCH_SECOND) / 2)) / (RTIMER_ARCH_SECOND)))
+
+/* Conversions between system timing and "precise" timing.
+   The "precise" timing is the timing with lowest-possible granularity so that
+   its tick divides rtimer ticks, radio timer ticks, and microsecond without a remainder.
+ */
+#define TSCH_RADIO_TO_PRECISE(X)  ((X) * 256)
+#define TSCH_PRECISE_TO_RADIO(X)  ((X) / 256)
+
+#define TSCH_US_TO_PRECISE(X)     ((X) * 1024)
+#define TSCH_PRECISE_TO_US(X)     ((X) / 1024)
+
+#define TSCH_RTIMER_TO_PRECISE(X) ((X) * 15625ll)
+#define TSCH_PRECISE_TO_RTIMER(X) ((X) / 15625)
 /*---------------------------------------------------------------------------*/
 #endif /* RTIMER_ARCH_H_ */
 /*---------------------------------------------------------------------------*/

@@ -122,6 +122,12 @@ enum {
    */
   RADIO_PARAM_TX_MODE,
 
+  /* The time when to transmit. If set before transmit() is called,
+   * then transmission is not started immediately, but delayed,
+   * so that SFD transmittion is finished at exactly that time.
+   */
+  RADIO_PARAM_TX_TIME,
+
   /*
    * Transmission power in dBm. The values can range from
    * RADIO_CONST_TXPOWER_MIN to RADIO_CONST_TXPOWER_MAX.
@@ -169,6 +175,11 @@ enum {
    * Because this parameter value mat be larger than what fits in radio_value_t,
    * it needs to be used with radio.get_object()/set_object(). */
   RADIO_PARAM_LAST_PACKET_TIMESTAMP,
+
+  /* Last packet timestamp, of hardware-dependent resolution.
+   * Needs to be used with radio.get_object()/set_object(),
+   * and the caller should pass a uint64_t variable. */
+  RADIO_PARAM_LAST_PACKET_TIMESTAMP_RADIO_TIMER,
 
   /* Constants (read only) */
 

@@ -89,6 +89,7 @@ struct tsch_log_t {
       int mac_tx_status;
       int dest;
       int drift;
+      int precise_drift;
       uint8_t num_tx;
       uint8_t datalen;
       uint8_t is_data;
@@ -98,7 +99,9 @@ struct tsch_log_t {
     struct {
       int src;
       int drift;
+      int precise_drift;
       int estimated_drift;
+      int precise_estimated_drift;
       uint8_t datalen;
       uint8_t is_unicast;
       uint8_t is_data;

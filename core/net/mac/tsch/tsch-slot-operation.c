@@ -145,6 +145,12 @@ static int32_t drift_correction = 0;
 /* Is drift correction used? (Can be true even if drift_correction == 0) */
 static uint8_t is_drift_correction_used;
 
+/* Drift estimation if precise TSCH is used */
+static int32_t precise_drift_correction = 0;
+static int32_t precise_drift_correction_remainder = 0;
+/* The current slot start, taking into account sub-microsecond compensation */
+volatile uint64_t precise_current_slot_start; /* units: 1/1024 of microsecond */
+
 /* The neighbor last used as our time source */
 struct tsch_neighbor *last_timesource_neighbor = NULL;
 
@@ -544,7 +550,16 @@ PT_THREAD(tsch_tx_slot(struct pt *pt, struct rtimer *t))
 #endif /* CCA_ENABLED */
         {
           /* delay before TX */
+#if TSCH_PRECISE_TIMING
+          {
+            uint32_t radio_tx_time;
+            radio_tx_time = (uint32_t)TSCH_PRECISE_TO_RADIO(precise_current_slot_start
+              + TSCH_RTIMER_TO_PRECISE(tsch_timing[tsch_ts_tx_offset]));
+            NETSTACK_RADIO.set_value(RADIO_PARAM_TX_TIME, radio_tx_time);
+          }
+#else /* TSCH_PRECISE_TIMING */
           TSCH_SCHEDULE_AND_YIELD(pt, t, current_slot_start, tsch_timing[tsch_ts_tx_offset] - RADIO_DELAY_BEFORE_TX, "TxBeforeTx");
+#endif /* TSCH_PRECISE_TIMING */
           TSCH_DEBUG_TX_EVENT();
           /* send packet already in radio tx buffer */
           mac_tx_status = NETSTACK_RADIO.transmit(packet_len);
@@ -629,13 +644,17 @@ PT_THREAD(tsch_tx_slot(struct pt *pt, struct rtimer *t))
               if(ack_len != 0) {
                 if(is_time_source) {
                   int32_t eack_time_correction = US_TO_RTIMERTICKS(ack_ies.ie_time_correction);
+                  int32_t precise_eack_time_correction = TSCH_US_TO_PRECISE(ack_ies.ie_time_correction);
                   int32_t since_last_timesync = ASN_DIFF(current_asn, last_sync_asn);
                   if(eack_time_correction > SYNC_IE_BOUND) {
                     drift_correction = SYNC_IE_BOUND;
+                    precise_drift_correction = TSCH_RTIMER_TO_PRECISE(SYNC_IE_BOUND);
                   } else if(eack_time_correction < -SYNC_IE_BOUND) {
                     drift_correction = -SYNC_IE_BOUND;
+                    precise_drift_correction = TSCH_RTIMER_TO_PRECISE(-SYNC_IE_BOUND);
                   } else {
                     drift_correction = eack_time_correction;
+                    precise_drift_correction = precise_eack_time_correction;
                   }
                   if(drift_correction != eack_time_correction) {
                     TSCH_LOG_ADD(tsch_log_message,
@@ -644,7 +663,8 @@ PT_THREAD(tsch_tx_slot(struct pt *pt, struct rtimer *t))
                     );
                   }
                   is_drift_correction_used = 1;
-                  tsch_timesync_update(current_neighbor, since_last_timesync, drift_correction);
+                  tsch_timesync_update(current_neighbor, since_last_timesync,
+                                       TSCH_PRECISE_TIMING ? precise_drift_correction : drift_correction);
                   /* Keep track of sync time */
                   last_sync_asn = current_asn;
                   tsch_schedule_keepalive();
@@ -683,6 +703,7 @@ PT_THREAD(tsch_tx_slot(struct pt *pt, struct rtimer *t))
     log->tx.num_tx = current_packet->transmissions;
     log->tx.datalen = queuebuf_datalen(current_packet->qb);
     log->tx.drift = drift_correction;
+    log->tx.precise_drift = precise_drift_correction;
     log->tx.drift_used = is_drift_correction_used;
     log->tx.is_data = ((((uint8_t *)(queuebuf_dataptr(current_packet->qb)))[0]) & 7) == FRAME802154_DATAFRAME;
 #if LLSEC802154_ENABLED
@@ -731,15 +752,21 @@ PT_THREAD(tsch_rx_slot(struct pt *pt, struct rtimer *t))
     static struct input_packet *current_input;
     /* Estimated drift based on RX time */
     static int32_t estimated_drift;
+    static int32_t precise_estimated_drift;
     /* Rx timestamps */
     static rtimer_clock_t rx_start_time;
     static rtimer_clock_t expected_rx_time;
     static rtimer_clock_t packet_duration;
+    static uint64_t precise_rx_start_time;
+    static uint64_t precise_expected_rx_time;
     uint8_t packet_seen;
 
     expected_rx_time = current_slot_start + tsch_timing[tsch_ts_tx_offset];
+    precise_expected_rx_time = precise_current_slot_start
+        + TSCH_RTIMER_TO_PRECISE(tsch_timing[tsch_ts_tx_offset]);
     /* Default start time: expected Rx time */
     rx_start_time = expected_rx_time;
+    precise_rx_start_time = precise_expected_rx_time;
 
     current_input = &input_array[input_index];
 
@@ -786,9 +813,19 @@ PT_THREAD(tsch_rx_slot(struct pt *pt, struct rtimer *t))
           frame802154_extract_linkaddr(&frame, &source_address, &destination_address);
 
 #if TSCH_RESYNC_WITH_SFD_TIMESTAMPS
+#if TSCH_PRECISE_TIMING
+        {
+          uint64_t ts;
+          NETSTACK_RADIO.get_object(RADIO_PARAM_LAST_PACKET_TIMESTAMP_RADIO_TIMER, &ts, sizeof(ts));
+          precise_rx_start_time = TSCH_RADIO_TO_PRECISE(ts);
+          packet_duration = TSCH_PACKET_DURATION_PRECISE(current_input->len);
+        }
+#else /* TSCH_PRECISE_TIMING */
         /* At the end of the reception, get an more accurate estimate of SFD arrival time */
         NETSTACK_RADIO.get_object(RADIO_PARAM_LAST_PACKET_TIMESTAMP, &rx_start_time, sizeof(rtimer_clock_t));
-#endif
+        packet_duration = TSCH_PACKET_DURATION(current_input->len);
+#endif /* TSCH_PRECISE_TIMING */
+#endif /* TSCH_RESYNC_WITH_SFD_TIMESTAMPS */
 
         packet_duration = TSCH_PACKET_DURATION(current_input->len);
 
@@ -818,6 +855,8 @@ PT_THREAD(tsch_rx_slot(struct pt *pt, struct rtimer *t))
              || linkaddr_cmp(&destination_address, &linkaddr_null)) {
             int do_nack = 0;
             estimated_drift = RTIMER_CLOCK_DIFF(expected_rx_time, rx_start_time);
+            precise_estimated_drift = (int32_t)((int64_t)precise_expected_rx_time
+                - (int64_t)precise_rx_start_time);
 
 #if TSCH_TIMESYNC_REMOVE_JITTER
             /* remove jitter due to measurement errors */
@@ -840,10 +879,16 @@ PT_THREAD(tsch_rx_slot(struct pt *pt, struct rtimer *t))
             if(frame.fcf.ack_required) {
               static uint8_t ack_buf[TSCH_PACKET_MAX_LEN];
               static int ack_len;
+              int16_t drift_correction_usec;
 
               /* Build ACK frame */
+#if TSCH_PRECISE_TIMING
+              drift_correction_usec = (int16_t)TSCH_PRECISE_TO_US(precise_estimated_drift);
+#else /* TSCH_PRECISE_TIMING */
+              drift_correction_usec = (int16_t)RTIMERTICKS_TO_US(estimated_drift);
+#endif /* TSCH_PRECISE_TIMING */
               ack_len = tsch_packet_create_eack(ack_buf, sizeof(ack_buf),
-                  &source_address, frame.seq, (int16_t)RTIMERTICKS_TO_US(estimated_drift), do_nack);
+                  &source_address, frame.seq, drift_correction_usec, do_nack);
 
 #if LLSEC802154_ENABLED
               if(tsch_is_pan_secured) {
@@ -855,9 +900,19 @@ PT_THREAD(tsch_rx_slot(struct pt *pt, struct rtimer *t))
               /* Copy to radio buffer */
               NETSTACK_RADIO.prepare((const void *)ack_buf, ack_len);
 
+#if TSCH_PRECISE_TIMING
+              {
+                uint32_t radio_tx_time;
+                radio_tx_time = (uint32_t)TSCH_PRECISE_TO_RADIO(precise_current_slot_start
+                    + packet_duration
+                    + TSCH_RTIMER_TO_PRECISE(tsch_timing[tsch_ts_tx_ack_delay]));
+                NETSTACK_RADIO.set_value(RADIO_PARAM_TX_TIME, radio_tx_time);
+              }
+#else /* TSCH_PRECISE_TIMING */
               /* Wait for time to ACK and transmit ACK */
               TSCH_SCHEDULE_AND_YIELD(pt, t, rx_start_time,
                   packet_duration + tsch_timing[tsch_ts_tx_ack_delay] - RADIO_DELAY_BEFORE_TX, "RxBeforeAck");
+#endif /* TSCH_PRECISE_TIMING */
               TSCH_DEBUG_RX_EVENT();
               NETSTACK_RADIO.transmit(ack_len);
               tsch_radio_off(TSCH_RADIO_CMD_OFF_WITHIN_TIMESLOT);
@@ -871,8 +926,10 @@ PT_THREAD(tsch_rx_slot(struct pt *pt, struct rtimer *t))
               last_sync_asn = current_asn;
               /* Save estimated drift */
               drift_correction = -estimated_drift;
+              precise_drift_correction = -precise_estimated_drift;
               is_drift_correction_used = 1;
-              tsch_timesync_update(n, since_last_timesync, -estimated_drift);
+              tsch_timesync_update(n, since_last_timesync,
+                                   TSCH_PRECISE_TIMING ? precise_drift_correction : drift_correction);
               tsch_schedule_keepalive();
             }
 
@@ -885,10 +942,12 @@ PT_THREAD(tsch_rx_slot(struct pt *pt, struct rtimer *t))
               log->rx.is_unicast = frame.fcf.ack_required;
               log->rx.datalen = current_input->len;
               log->rx.drift = drift_correction;
+              log->rx.precise_drift = precise_drift_correction;
               log->rx.drift_used = is_drift_correction_used;
               log->rx.is_data = frame.fcf.frame_type == FRAME802154_DATAFRAME;
               log->rx.sec_level = frame.aux_hdr.security_control.security_level;
               log->rx.estimated_drift = estimated_drift;
+              log->rx.precise_estimated_drift = precise_estimated_drift;
             );
           }
 
@@ -941,8 +1000,12 @@ PT_THREAD(tsch_slot_operation(struct rtimer *t, void *ptr))
       int is_active_slot;
       TSCH_DEBUG_SLOT_START();
       tsch_in_slot_operation = 1;
+      /* Calculate the precise slot start */
+      precise_current_slot_start = TSCH_RTIMER_TO_PRECISE(current_slot_start)
+                                   + precise_drift_correction_remainder;
       /* Reset drift correction */
       drift_correction = 0;
+      precise_drift_correction = 0;
       is_drift_correction_used = 0;
       /* Get a packet ready to be sent */
       current_packet = get_packet_and_neighbor_for_link(current_link, &current_neighbor);
@@ -989,6 +1052,7 @@ PT_THREAD(tsch_slot_operation(struct rtimer *t, void *ptr))
                           (unsigned)ASN_DIFF(current_asn, last_sync_asn));
       );
       last_timesource_neighbor = NULL;
+      precise_drift_correction_remainder = 0;
       tsch_disassociate();
     } else {
       /* backup of drift correction for printing debug messages */
@@ -1017,13 +1081,23 @@ PT_THREAD(tsch_slot_operation(struct rtimer *t, void *ptr))
         /* Update ASN */
         ASN_INC(current_asn, timeslot_diff);
         /* Time to next wake up */
-        time_to_next_active_slot = timeslot_diff * tsch_timing[tsch_ts_timeslot_length] + drift_correction;
-        drift_correction = 0;
-        is_drift_correction_used = 0;
+        time_to_next_active_slot = timeslot_diff * tsch_timing[tsch_ts_timeslot_length];
         /* Update current slot start */
         prev_slot_start = current_slot_start;
+
+        /* Compensate both for the known and predicted drift */
+#if TSCH_PRECISE_TIMING
+        precise_drift_correction += tsch_timesync_adaptive_compensate(time_to_next_active_slot);
+        precise_drift_correction += precise_drift_correction_remainder;
+        drift_correction = TSCH_PRECISE_TO_RTIMER(precise_drift_correction);
+        precise_drift_correction_remainder =
+            precise_drift_correction - TSCH_RTIMER_TO_PRECISE(drift_correction);
+#else /* TSCH_PRECISE_TIMING */
+        drift_correction += tsch_timesync_adaptive_compensate(time_to_next_active_slot);
+#endif /* TSCH_PRECISE_TIMING */
+        time_to_next_active_slot += drift_correction;
         current_slot_start += time_to_next_active_slot;
-        current_slot_start += tsch_timesync_adaptive_compensate(time_to_next_active_slot);
+
       } while(!tsch_schedule_slot_operation(t, prev_slot_start, time_to_next_active_slot, "main"));
     }
 

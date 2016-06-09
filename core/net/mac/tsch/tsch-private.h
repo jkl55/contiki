@@ -103,6 +103,7 @@ void tsch_disassociate(void);
  * packet len in bytes with 802.15.4 250kbps data rate.
  * One byte = 32us. Add two bytes for CRC and one for len field */
 #define TSCH_PACKET_DURATION(len) US_TO_RTIMERTICKS(32 * ((len) + 3))
+#define TSCH_PACKET_DURATION_PRECISE(len) TSCH_US_TO_PRECISE(32 * ((len) + 3))
 
 /* Convert rtimer ticks to clock and vice versa */
 #define TSCH_CLOCK_TO_TICKS(c) (((c) * RTIMER_SECOND) / CLOCK_SECOND)
@@ -111,5 +112,13 @@ void tsch_disassociate(void);
 /* Wait for a condition with timeout t0+offset. */
 #define BUSYWAIT_UNTIL_ABS(cond, t0, offset) \
   while(!(cond) && RTIMER_CLOCK_LT(RTIMER_NOW(), (t0) + (offset))) ;
+
+#ifndef TSCH_US_TO_PRECISE
+#define TSCH_US_TO_PRECISE(x)     (x)
+#define TSCH_RTIMER_TO_PRECISE(x) (x)
+#define TSCH_PRECISE_TO_RADIO(x)  (x)
+#define TSCH_PRECISE_TO_RTIMER(x) (x)
+#define TSCH_PRECISE_TO_USEC(x)   (x)
+#endif
 
 #endif /* __TSCH_PRIVATE_H__ */
