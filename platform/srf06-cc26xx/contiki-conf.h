@@ -348,7 +348,7 @@ typedef uint32_t rtimer_clock_t;
 #define RADIO_DELAY_BEFORE_RX ((unsigned)US_TO_RTIMERTICKS(15))
 /* Delay between the SFD finishes arriving and it is detected in software.
  * Not important on this platform as it uses hardware timestamps for SFD */
-#define RADIO_DELAY_BEFORE_DETECT ((unsigned)US_TO_RTIMERTICKS(0))
+#define RADIO_DELAY_BEFORE_DETECT ((unsigned)US_TO_RTIMERTICKS(352))
 
 /* Timer conversion; radio is running at 4 MHz */
 #define RADIO_TIMER_SECOND   4000000u
@@ -375,7 +375,9 @@ typedef uint32_t rtimer_clock_t;
 
 /* The drift compared to "true" 10ms slots.
    Enable adaptive sync to enable compensation for this. */
+#ifndef TSCH_CONF_BASE_DRIFT_PPM
 #define TSCH_CONF_BASE_DRIFT_PPM -977
+#endif
 
 /* 10 times per second */
 #define TSCH_CONF_ASSOCIATION_CHANNEL_SWITCH_FREQUENCY 10

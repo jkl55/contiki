@@ -641,6 +641,8 @@ PT_THREAD(tsch_scan(struct pt *pt))
 
     /* Turn radio on and wait for EB */
     NETSTACK_RADIO.on();
+    t0 = RTIMER_NOW();
+    BUSYWAIT_UNTIL_ABS((is_packet_pending = NETSTACK_RADIO.pending_packet()), t0, RTIMER_SECOND / 100);
 
     is_packet_pending = NETSTACK_RADIO.pending_packet();
     if(!is_packet_pending && NETSTACK_RADIO.receiving_packet()) {

@@ -595,7 +595,7 @@ PT_THREAD(tsch_tx_slot(struct pt *pt, struct rtimer *t))
               tsch_radio_on(TSCH_RADIO_CMD_ON_WITHIN_TIMESLOT);
               /* Wait for ACK to come */
               BUSYWAIT_UNTIL_ABS(NETSTACK_RADIO.receiving_packet(),
-                  tx_start_time, tx_duration + tsch_timing[tsch_ts_rx_ack_delay] + tsch_timing[tsch_ts_ack_wait]);
+                  tx_start_time, tx_duration + tsch_timing[tsch_ts_rx_ack_delay] + tsch_timing[tsch_ts_ack_wait] + RADIO_DELAY_BEFORE_DETECT);
               TSCH_DEBUG_TX_EVENT();
 
               ack_start_time = RTIMER_NOW() - RADIO_DELAY_BEFORE_DETECT;
@@ -756,7 +756,6 @@ PT_THREAD(tsch_rx_slot(struct pt *pt, struct rtimer *t))
     /* Rx timestamps */
     static rtimer_clock_t rx_start_time;
     static rtimer_clock_t expected_rx_time;
-    static rtimer_clock_t packet_duration;
     static uint64_t precise_rx_start_time;
     static uint64_t precise_expected_rx_time;
     uint8_t packet_seen;
@@ -780,7 +779,7 @@ PT_THREAD(tsch_rx_slot(struct pt *pt, struct rtimer *t))
     if(!packet_seen) {
       /* Check if receiving within guard time */
       BUSYWAIT_UNTIL_ABS((packet_seen = NETSTACK_RADIO.receiving_packet()),
-          current_slot_start, tsch_timing[tsch_ts_rx_offset] + tsch_timing[tsch_ts_rx_wait]);
+          current_slot_start, tsch_timing[tsch_ts_rx_offset] + tsch_timing[tsch_ts_rx_wait] + RADIO_DELAY_BEFORE_DETECT);
     }
     if(!packet_seen) {
       /* no packets on air */
@@ -813,21 +812,16 @@ PT_THREAD(tsch_rx_slot(struct pt *pt, struct rtimer *t))
           frame802154_extract_linkaddr(&frame, &source_address, &destination_address);
 
 #if TSCH_RESYNC_WITH_SFD_TIMESTAMPS
+        /* At the end of the reception, get an more accurate estimate of SFD arrival time */
+        NETSTACK_RADIO.get_object(RADIO_PARAM_LAST_PACKET_TIMESTAMP, &rx_start_time, sizeof(rtimer_clock_t));
 #if TSCH_PRECISE_TIMING
         {
           uint64_t ts;
           NETSTACK_RADIO.get_object(RADIO_PARAM_LAST_PACKET_TIMESTAMP_RADIO_TIMER, &ts, sizeof(ts));
           precise_rx_start_time = TSCH_RADIO_TO_PRECISE(ts);
-          packet_duration = TSCH_PACKET_DURATION_PRECISE(current_input->len);
         }
-#else /* TSCH_PRECISE_TIMING */
-        /* At the end of the reception, get an more accurate estimate of SFD arrival time */
-        NETSTACK_RADIO.get_object(RADIO_PARAM_LAST_PACKET_TIMESTAMP, &rx_start_time, sizeof(rtimer_clock_t));
-        packet_duration = TSCH_PACKET_DURATION(current_input->len);
 #endif /* TSCH_PRECISE_TIMING */
 #endif /* TSCH_RESYNC_WITH_SFD_TIMESTAMPS */
-
-        packet_duration = TSCH_PACKET_DURATION(current_input->len);
 
 #if LLSEC802154_ENABLED
         /* Decrypt and verify incoming frame */
@@ -903,12 +897,14 @@ PT_THREAD(tsch_rx_slot(struct pt *pt, struct rtimer *t))
 #if TSCH_PRECISE_TIMING
               {
                 uint32_t radio_tx_time;
-                radio_tx_time = (uint32_t)TSCH_PRECISE_TO_RADIO(precise_current_slot_start
+                rtimer_clock_t packet_duration = TSCH_PACKET_DURATION_PRECISE(current_input->len);
+                radio_tx_time = (uint32_t)TSCH_PRECISE_TO_RADIO(precise_rx_start_time
                     + packet_duration
                     + TSCH_RTIMER_TO_PRECISE(tsch_timing[tsch_ts_tx_ack_delay]));
                 NETSTACK_RADIO.set_value(RADIO_PARAM_TX_TIME, radio_tx_time);
               }
 #else /* TSCH_PRECISE_TIMING */
+              rtimer_clock_t packet_duration = TSCH_PACKET_DURATION(current_input->len);
               /* Wait for time to ACK and transmit ACK */
               TSCH_SCHEDULE_AND_YIELD(pt, t, rx_start_time,
                   packet_duration + tsch_timing[tsch_ts_tx_ack_delay] - RADIO_DELAY_BEFORE_TX, "RxBeforeAck");

@@ -212,7 +212,7 @@ tsch_timesync_adaptive_compensate(rtimer_clock_t time_delta_ticks)
   if(TSCH_BASE_DRIFT_PPM) {
     static int32_t base_drift_remainder;
     static int16_t base_drift_tick_conversion_error;
-    result += compensate_internal(time_delta_usec, 256L * TSCH_BASE_DRIFT_PPM,
+    result += compensate_internal(time_delta_usec, 1024L * TSCH_BASE_DRIFT_PPM,
         &base_drift_remainder, &base_drift_tick_conversion_error);
   }
 
