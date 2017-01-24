@@ -96,6 +96,8 @@ SECTIONS
         _ebss = .;
     } > FRSRAM
 
+    _end = .;
+
     .stack (NOLOAD) :
     {
         *(.stack)

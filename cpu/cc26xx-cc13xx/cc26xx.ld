@@ -90,6 +90,8 @@ SECTIONS
         _ebss = .;
     } > SRAM
 
+    _end = .;  /* end of heap */
+
     .ccfg :
     {
         KEEP(*(.ccfg))
